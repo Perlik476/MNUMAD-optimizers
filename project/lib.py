@@ -1,6 +1,6 @@
 import numpy as np
 
-def gradient_descent(f: callable, df: callable, x0: np.ndarray, alpha: float, max_iter: int) -> np.ndarray:
+def gradient_descent(F: callable, DF: callable, p0: np.ndarray, alpha: float, max_iter: int) -> np.ndarray:
     """
     Gradient descent algorithm for unconstrained optimization.
     :param f: function to be minimized
@@ -14,13 +14,13 @@ def gradient_descent(f: callable, df: callable, x0: np.ndarray, alpha: float, ma
     assert alpha > 0, "alpha must be positive"
     assert max_iter > 0, "max_iter must be positive"
 
-    x = x0
+    p = p0
     for _ in range(max_iter):
-        x = x - alpha * df(x)
-    return x
+        p = p - alpha * DF(p)
+    return p
 
 
-def gauss_newton(f: callable, df: callable, x0: np.ndarray, alpha: float, max_iter: int) -> np.ndarray:
+def gauss_newton(F: callable, DF: callable, p0: np.ndarray, max_iter: int) -> np.ndarray:
     """
     Gauss-Newton algorithm for unconstrained optimization.
     :param f: function to be minimized
@@ -30,8 +30,11 @@ def gauss_newton(f: callable, df: callable, x0: np.ndarray, alpha: float, max_it
     :param max_iter: maximum number of iterations
     :return: minimum point
     """
-    x = x0
+    p = p0
     for i in range(max_iter):
-        print(i)
-        x = x - alpha * np.linalg.inv(df(x).T @ df(x)) @ df(x).T @ f(x)
-    return x
+        print(f"iter {i}: p = {p}, ||F(p)|| = {np.linalg.norm(F(p))}")
+        try:
+            p = p - np.linalg.solve(DF(p).T @ DF(p),  DF(p).T @ F(p))
+        except np.linalg.LinAlgError:
+            return p
+    return p
