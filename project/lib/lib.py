@@ -1,6 +1,7 @@
 from typing import Callable
 
 import numpy as np
+from sklearn.linear_model import Ridge
 
 
 class DifferentiableFunction:
@@ -125,7 +126,7 @@ class LevenbergMarquardt:
         ) -> float:
             return self.value
         
-    class LambdaParamDefaultOptimizer(LambdaParam):
+    class LambdaParamDefaultModifier(LambdaParam):
         def __init__(
             self,
             lambda0: float,
@@ -153,7 +154,7 @@ class LevenbergMarquardt:
             if self.value < self.eps:
                 return self.value
 
-            if current_err > next_err:
+            if current_err >= next_err:
                 self.value = self.value / self.value_change
             else:
                 self.value = self.value * self.value_change
@@ -178,17 +179,57 @@ class LevenbergMarquardt:
         self.DR = R.differential
         self.lambda_param_fun = lambda_param_fun
 
-    def step(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
-        return p - np.linalg.solve(
+    def step_solve(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+        """
+        Solve operation is equivalent to the following:
+        (DR(p).T @ DR(p) + lambda_param * np.eye(p.size))**(-1) @ DR(p)^T @ R(p)
+        """
+        d = np.linalg.solve(
             self.DR(p).T @ self.DR(p) + lambda_param * np.eye(p.size),
             self.DR(p).T @ self.R(p),
         )
+        return p - d
+    
+    def step_least_squares(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+        """
+        Solve operation is equivalent to ridge regression:
+        ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
+        which is equivalent to the reformulated least squares problem
+        """
+        A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
+        b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
+
+        d = np.linalg.lstsq(A, b, rcond=None)[0].reshape(-1)
+        return p - d
+    
+    def step_ridge(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+        """
+        Solve operation is equivalent to ridge regression:
+        ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
+        """
+        ridge = Ridge(alpha=np.sqrt(lambda_param), fit_intercept=False, solver='auto', copy_X=False)
+        ridge.fit(self.DR(p), self.R(p))
+        d = ridge.coef_.reshape(-1)
+        return p - d
+
+    def step(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
+        if self.step_type == "default":
+            return self.step_solve(p, lambda_param)
+        elif self.step_type == "solve":
+            return self.step_solve(p, lambda_param)
+        elif self.step_type == "least_squares":
+            return self.step_least_squares(p, lambda_param)
+        elif self.step_type == "ridge":
+            return self.step_ridge(p, lambda_param)
+        else:
+            raise NotImplementedError
 
     def optimize(
         self,
         p0: np.ndarray,
         max_iter: int,
         silent: bool = True,
+        step_type: str = "default",
     ) -> tuple[np.ndarray, np.float64]:
         """
         Levenberg-Marquardt algorithm for unconstrained optimization.
@@ -199,6 +240,8 @@ class LevenbergMarquardt:
         :return: minimum point
         """
         assert max_iter > 0, "max_iter must be positive"
+        assert step_type in ["default", "solve", "least_squares", "ridge"], "step_type must be one of the following: 'default', 'solve', 'least_squares', 'ridge'"
+        self.step_type = step_type 
 
         p = p0
         err = np.linalg.norm(self.R(p))
@@ -210,7 +253,7 @@ class LevenbergMarquardt:
                 print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
 
             try:
-                p = self.step(p, self.lambda_param_fun(self.R, self.step, p, i))
+                p = self.step(p=p, lambda_param=self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
                 return p, err
 
