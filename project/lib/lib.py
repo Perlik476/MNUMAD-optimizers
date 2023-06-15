@@ -1,10 +1,29 @@
-from typing import Callable, Optional
+from typing import Callable
 
 import numpy as np
 
 
+class DifferentiableFunction:
+    def __init__(
+        self,
+        F: Callable[[np.ndarray], np.ndarray],
+        DF: Callable[[np.ndarray], np.ndarray],
+    ):
+        self.F = F
+        self.DF = DF
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return self.F(x)
+
+    def differential(self, x: np.ndarray) -> np.ndarray:
+        return self.DF(x)
+
+
 def gauss_newton(
-    F: Callable, DF: Callable, p0: np.ndarray, max_iter: int, silent: bool = True
+    F: DifferentiableFunction,
+    p0: np.ndarray,
+    max_iter: int,
+    silent: bool = True,
 ) -> tuple[np.ndarray, np.float64]:
     """
     Gauss-Newton algorithm for unconstrained optimization.
@@ -16,6 +35,7 @@ def gauss_newton(
     """
     assert max_iter > 0, "max_iter must be positive"
 
+    DF = F.differential
     p = p0
     err = np.linalg.norm(F(p))
 
@@ -33,38 +53,56 @@ def gauss_newton(
 
 class LevenbergMarquardt:
     class LambdaParam:
+        def __call__(
+            self,
+            F: DifferentiableFunction,
+            next_point: Callable[[np.ndarray, float], np.ndarray],
+            p: np.ndarray,
+            i: int,
+        ) -> float:
+            raise NotImplementedError
+        
+    class LambdaParamConstant(LambdaParam):
+        def __init__(
+            self,
+            lambda0: float
+        ):
+            assert lambda0 >= 0, "lambda0 must be non-negative"
+            self.value = lambda0
+
+        def __call__(
+            self,
+            F: DifferentiableFunction,
+            next_point: Callable[[np.ndarray, float], np.ndarray],
+            p: np.ndarray,
+            i: int,
+        ) -> float:
+            return self.value
+        
+    class LambdaParamDefaultOptimizer(LambdaParam):
         def __init__(
             self,
             lambda0: float,
             lambda_change: float,
             eps: float = 1e-16,
-            lambda_fun: Optional[Callable] = None,
         ):
             assert lambda_change > 1, "lambda_change must be greater than 1"
-            assert lambda0 > 0, "lambda0 must be positive"
+            assert lambda0 >= 0, "lambda0 must be non-negative"
             assert eps > 0, "eps must be positive"
 
             self.value = lambda0
             self.value_change = lambda_change
             self.eps = eps
 
-            if lambda_fun is None:
-                self.lambda_fun = self.lambda_fun_default
-            else:
-                self.lambda_fun = lambda_fun
-
         def __call__(
-            self, F: Callable, next_point: Callable, p: np.ndarray, i: int
-        ) -> float:
-            return self.lambda_fun(F, next_point, p, i)
-
-        def lambda_fun_default(
-            self, F: Callable, next_point: Callable, p: np.ndarray, i: int
+            self,
+            F: DifferentiableFunction,
+            next_point: Callable[[np.ndarray, float], np.ndarray],
+            p: np.ndarray,
+            i: int,
         ) -> float:
             current_err = np.linalg.norm(F(p))
             next_err = np.linalg.norm(F(next_point(p, self.value)))
-
-            # print(f"lambda_fun: {self.value}, {current_err}, {next_err}")
 
             if self.value < self.eps:
                 return self.value
@@ -73,24 +111,28 @@ class LevenbergMarquardt:
                 self.value = self.value / self.value_change
             else:
                 self.value = self.value * self.value_change
-                return self.lambda_fun_default(F, next_point, p, i)
+                return self.__call__(F, next_point, p, i)
 
             return self.value
 
     def __init__(
         self,
-        F: Callable,
-        DF: Callable,
-        lambda_param: Optional[LambdaParam] = None,
+        F: DifferentiableFunction,
+        lambda_param_fun: Callable[
+            [
+                DifferentiableFunction,
+                Callable[[np.ndarray, float], np.ndarray],
+                np.ndarray,
+                int,
+            ],
+            float,
+        ],
     ):
         self.F = F
-        self.DF = DF
-        if lambda_param is None:
-            self.lambda_param = self.LambdaParam(0.1, 2)
-        else:
-            self.lambda_param = lambda_param
+        self.DF = F.differential
+        self.lambda_param_fun = lambda_param_fun
 
-    def next_point(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
+    def step(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
         return p - np.linalg.solve(
             self.DF(p).T @ self.DF(p) + lambda_param * np.eye(p.size),
             self.DF(p).T @ self.F(p),
@@ -122,9 +164,7 @@ class LevenbergMarquardt:
                 print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
 
             try:
-                p = self.next_point(
-                    p, self.lambda_param(self.F, self.next_point, p, i)
-                )
+                p = self.step(p, self.lambda_param_fun(self.F, self.step, p, i))
             except np.linalg.LinAlgError:
                 return p, err
 
