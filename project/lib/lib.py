@@ -8,9 +8,22 @@ class DifferentiableFunction:
         self,
         F: Callable[[np.ndarray], np.ndarray],
         DF: Callable[[np.ndarray], np.ndarray],
+        N: int,
+        M: int
     ):
+        """
+        :param F: function from R^N to R^M
+        :param DF: differential of F
+        :param N: dimension of domain
+        :param M: dimension of codomain
+        """
+
         self.F = F
         self.DF = DF
+
+        zero = np.zeros(N)
+        assert F(zero).size == M, "F must be a function from R^N to R^M"
+        assert DF(zero).shape == (M, N), "DF must be a function from R^N to R^(MxN)"
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return self.F(x)
@@ -19,8 +32,41 @@ class DifferentiableFunction:
         return self.DF(x)
 
 
+def gradient_descent(
+    R: DifferentiableFunction,
+    p0: np.ndarray,
+    alpha: float,
+    max_iter: int,
+    silent: bool = True,
+) -> tuple[np.ndarray, np.float64]:
+    """
+    Gradient descent algorithm for nonlinear least squares.
+    :param f: function to be minimized
+    :param df: gradient of f
+    :param p0: initial point
+    :param alpha: step size
+    :param max_iter: maximum number of iterations
+    :return: minimum point
+    """
+
+    assert max_iter > 0, "max_iter must be positive"
+    assert alpha > 0, "alpha must be positive"
+
+    DR = R.differential
+    p = p0
+    err = np.linalg.norm(R(p))
+
+    for i in range(max_iter):
+        err = np.linalg.norm(R(p))
+        if not silent:
+            print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
+        p = p - alpha * DR(p).T @ R(p)
+    
+    return p, err
+
+
 def gauss_newton(
-    F: DifferentiableFunction,
+    R: DifferentiableFunction,
     p0: np.ndarray,
     max_iter: int,
     silent: bool = True,
@@ -35,16 +81,16 @@ def gauss_newton(
     """
     assert max_iter > 0, "max_iter must be positive"
 
-    DF = F.differential
+    DR = R.differential
     p = p0
-    err = np.linalg.norm(F(p))
+    err = np.linalg.norm(R(p))
 
     for i in range(max_iter):
-        err = np.linalg.norm(F(p))
+        err = np.linalg.norm(R(p))
         if not silent:
             print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
         try:
-            p = p - np.linalg.solve(DF(p).T @ DF(p), DF(p).T @ F(p))
+            p = p - np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
         except np.linalg.LinAlgError:
             return p, err
 
@@ -55,8 +101,8 @@ class LevenbergMarquardt:
     class LambdaParam:
         def __call__(
             self,
-            F: DifferentiableFunction,
-            next_point: Callable[[np.ndarray, float], np.ndarray],
+            R: DifferentiableFunction,
+            step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
         ) -> float:
@@ -72,8 +118,8 @@ class LevenbergMarquardt:
 
         def __call__(
             self,
-            F: DifferentiableFunction,
-            next_point: Callable[[np.ndarray, float], np.ndarray],
+            R: DifferentiableFunction,
+            step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
         ) -> float:
@@ -96,13 +142,13 @@ class LevenbergMarquardt:
 
         def __call__(
             self,
-            F: DifferentiableFunction,
-            next_point: Callable[[np.ndarray, float], np.ndarray],
+            R: DifferentiableFunction,
+            step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
         ) -> float:
-            current_err = np.linalg.norm(F(p))
-            next_err = np.linalg.norm(F(next_point(p, self.value)))
+            current_err = np.linalg.norm(R(p))
+            next_err = np.linalg.norm(R(step(p, self.value)))
 
             if self.value < self.eps:
                 return self.value
@@ -111,13 +157,13 @@ class LevenbergMarquardt:
                 self.value = self.value / self.value_change
             else:
                 self.value = self.value * self.value_change
-                return self.__call__(F, next_point, p, i)
+                return self.__call__(R, step, p, i)
 
             return self.value
 
     def __init__(
         self,
-        F: DifferentiableFunction,
+        R: DifferentiableFunction,
         lambda_param_fun: Callable[
             [
                 DifferentiableFunction,
@@ -128,14 +174,14 @@ class LevenbergMarquardt:
             float,
         ],
     ):
-        self.F = F
-        self.DF = F.differential
+        self.R = R
+        self.DR = R.differential
         self.lambda_param_fun = lambda_param_fun
 
     def step(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
         return p - np.linalg.solve(
-            self.DF(p).T @ self.DF(p) + lambda_param * np.eye(p.size),
-            self.DF(p).T @ self.F(p),
+            self.DR(p).T @ self.DR(p) + lambda_param * np.eye(p.size),
+            self.DR(p).T @ self.R(p),
         )
 
     def optimize(
@@ -155,16 +201,16 @@ class LevenbergMarquardt:
         assert max_iter > 0, "max_iter must be positive"
 
         p = p0
-        err = np.linalg.norm(self.F(p))
+        err = np.linalg.norm(self.R(p))
 
         for i in range(max_iter):
-            err = np.linalg.norm(self.F(p))
+            err = np.linalg.norm(self.R(p))
 
             if not silent:
                 print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
 
             try:
-                p = self.step(p, self.lambda_param_fun(self.F, self.step, p, i))
+                p = self.step(p, self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
                 return p, err
 
