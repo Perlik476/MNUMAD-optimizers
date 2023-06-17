@@ -20,6 +20,8 @@ class Function:
         assert type(N) == int, "N must be an integer"
         assert type(M) == int, "M must be an integer"
 
+        # check that F and DF are functions from R^M to R^N and R^(NxM) respectively
+        
         arg = np.random.randn(M)
         assert F(arg).size == N, "F must be a function from R^M to R^N"
 
