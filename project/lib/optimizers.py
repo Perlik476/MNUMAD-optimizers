@@ -44,7 +44,7 @@ def gauss_newton(
     p0: np.ndarray,
     max_iter: int,
     alpha: float = 1,
-    step_type: str = "solve",
+    step_type: str = "least_squares",
     silent: bool = True,
 ) -> tuple[np.ndarray, np.float64]:
     """
@@ -227,7 +227,7 @@ class LevenbergMarquardt:
         p0: np.ndarray,
         max_iter: int,
         silent: bool = True,
-        step_type: str = "solve",
+        step_type: str = "least_squares",
     ) -> tuple[np.ndarray, np.float64]:
         """
         Levenberg-Marquardt algorithm for unconstrained optimization.
@@ -253,6 +253,7 @@ class LevenbergMarquardt:
             try:
                 p = self.step(p=p, lambda_param=self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
+                print(f"Levenberg-Marquardt: {i}-th iteration failed. Returning current point.")
                 return p, err
 
         return p, err
