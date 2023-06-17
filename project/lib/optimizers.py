@@ -3,38 +3,11 @@ from typing import Callable
 import numpy as np
 from sklearn.linear_model import Ridge
 
-
-class DifferentiableFunction:
-    def __init__(
-        self,
-        F: Callable[[np.ndarray], np.ndarray],
-        DF: Callable[[np.ndarray], np.ndarray],
-        N: int,
-        M: int
-    ):
-        """
-        :param F: function from R^N to R^M
-        :param DF: differential of F
-        :param N: dimension of domain
-        :param M: dimension of codomain
-        """
-
-        self.F = F
-        self.DF = DF
-
-        zero = np.zeros(N)
-        assert F(zero).size == M, "F must be a function from R^N to R^M"
-        assert DF(zero).shape == (M, N), "DF must be a function from R^N to R^(MxN)"
-
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return self.F(x)
-
-    def differential(self, x: np.ndarray) -> np.ndarray:
-        return self.DF(x)
+from lib.functions import Function
 
 
 def gradient_descent(
-    R: DifferentiableFunction,
+    R: Function,
     p0: np.ndarray,
     alpha: float,
     max_iter: int,
@@ -67,7 +40,7 @@ def gradient_descent(
 
 
 def gauss_newton(
-    R: DifferentiableFunction,
+    R: Function,
     p0: np.ndarray,
     max_iter: int,
     silent: bool = True,
@@ -93,16 +66,21 @@ def gauss_newton(
         try:
             p = p - np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
         except np.linalg.LinAlgError:
+            print(f"Singular matrix encountered in {i}-th iteration. Returning current point.")
             return p, err
 
     return p, err
 
 
 class LevenbergMarquardt:
+    R: Function
+    DR: Callable[[np.ndarray], np.ndarray]
+    lambda_param_fun: Callable[[Function, Callable[[np.ndarray, float], np.ndarray], np.ndarray, int], float]
+    
     class LambdaParam:
         def __call__(
             self,
-            R: DifferentiableFunction,
+            R: Function,
             step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
@@ -115,11 +93,12 @@ class LevenbergMarquardt:
             lambda0: float
         ):
             assert lambda0 >= 0, "lambda0 must be non-negative"
+            self.init_value = lambda0
             self.value = lambda0
 
         def __call__(
             self,
-            R: DifferentiableFunction,
+            R: Function,
             step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
@@ -137,17 +116,21 @@ class LevenbergMarquardt:
             assert lambda0 >= 0, "lambda0 must be non-negative"
             assert eps > 0, "eps must be positive"
 
+            self.init_value = lambda0
             self.value = lambda0
             self.value_change = lambda_change
             self.eps = eps
 
         def __call__(
             self,
-            R: DifferentiableFunction,
+            R: Function,
             step: Callable[[np.ndarray, float], np.ndarray],
             p: np.ndarray,
             i: int,
         ) -> float:
+            if i == 0:
+                self.value = self.init_value
+
             current_err = np.linalg.norm(R(p))
             next_err = np.linalg.norm(R(step(p, self.value)))
 
@@ -164,10 +147,10 @@ class LevenbergMarquardt:
 
     def __init__(
         self,
-        R: DifferentiableFunction,
+        R: Function,
         lambda_param_fun: Callable[
             [
-                DifferentiableFunction,
+                Function,
                 Callable[[np.ndarray, float], np.ndarray],
                 np.ndarray,
                 int,
@@ -207,7 +190,7 @@ class LevenbergMarquardt:
         Solve operation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
         """
-        ridge = Ridge(alpha=np.sqrt(lambda_param), fit_intercept=False, solver='auto', copy_X=False)
+        ridge = Ridge(alpha=np.sqrt(lambda_param), fit_intercept=False, solver='auto')
         ridge.fit(self.DR(p), self.R(p))
         d = ridge.coef_.reshape(-1)
         return p - d
