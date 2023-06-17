@@ -47,6 +47,9 @@ class Function:
     def __add__(self, other):
         return add(self, other)
     
+    def __sub__(self, other):
+        return add(self, scale(other, -1))
+    
     def __mul__(self, other):
         if type(other) == float or type(other) == int:
             return scale(self, other)

@@ -43,6 +43,8 @@ def gauss_newton(
     R: Function,
     p0: np.ndarray,
     max_iter: int,
+    alpha: float = 1,
+    step_type: str = "solve",
     silent: bool = True,
 ) -> tuple[np.ndarray, np.float64]:
     """
@@ -54,6 +56,7 @@ def gauss_newton(
     :return: minimum point
     """
     assert max_iter > 0, "max_iter must be positive"
+    assert step_type == "solve" or step_type == "least_squares", "step_type must be 'solve' or 'least_squares'"
 
     DR = R.differential
     p = p0
@@ -63,11 +66,23 @@ def gauss_newton(
         err = np.linalg.norm(R(p))
         if not silent:
             print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
-        try:
-            p = p - np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
-        except np.linalg.LinAlgError:
-            print(f"Singular matrix encountered in {i}-th iteration. Returning current point.")
-            return p, err
+            try:
+                print(f"DR(p) rank = {np.linalg.matrix_rank(DR(p))}, DR(p).T @ DR(p) rank = {np.linalg.matrix_rank(DR(p).T @ DR(p))}")
+            except np.linalg.LinAlgError:
+                print(f"Failed to compute ranks of DR(p) and DR(p).T @ DR(p) matrices")
+        if step_type == "solve":
+            try:
+                d = np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
+            except np.linalg.LinAlgError:
+                print(f"Singular matrix encountered in {i}-th iteration. Returning current point.")
+                return p, err
+        elif step_type == "least_squares":
+            try:
+                d = np.linalg.lstsq(DR(p), R(p), rcond=None)[0]
+            except np.linalg.LinAlgError:
+                print(f"Least squares failed in {i}-th iteration. Returning current point.")
+                return p, err
+        p = p - alpha * d
 
     return p, err
 
@@ -212,7 +227,7 @@ class LevenbergMarquardt:
         p0: np.ndarray,
         max_iter: int,
         silent: bool = True,
-        step_type: str = "default",
+        step_type: str = "solve",
     ) -> tuple[np.ndarray, np.float64]:
         """
         Levenberg-Marquardt algorithm for unconstrained optimization.
@@ -223,7 +238,7 @@ class LevenbergMarquardt:
         :return: minimum point
         """
         assert max_iter > 0, "max_iter must be positive"
-        assert step_type in ["default", "solve", "least_squares", "ridge"], "step_type must be one of the following: 'default', 'solve', 'least_squares', 'ridge'"
+        assert step_type in ["solve", "least_squares", "ridge"], "step_type must be one of the following: 'solve', 'least_squares', 'ridge'"
         self.step_type = step_type 
 
         p = p0
