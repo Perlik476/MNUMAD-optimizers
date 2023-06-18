@@ -1,13 +1,14 @@
 from typing import Callable
 import numpy as np
+from numpy.typing import NDArray
 
 class Function:
     def __init__(
         self,
-        F: Callable[[np.ndarray], np.ndarray],
-        DF: Callable[[np.ndarray], np.ndarray],
+        F: Callable[[NDArray[np.float64]], NDArray[np.float64]],
+        DF: Callable[[NDArray[np.float64]], NDArray[np.float64]],
         M: int,
-        N: int
+        N: int,
     ):
         """
         :param F: function from R^M to R^N
@@ -36,13 +37,13 @@ class Function:
         self.F = F
         self.DF = DF
         self.M = M
-        self.N = N        
+        self.N = N
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         assert x.size == self.M, f"x must be in R^{self.M}"
         return self.F(x)
 
-    def differential(self, x: np.ndarray) -> np.ndarray:
+    def differential(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
         assert x.size == self.M, f"x must be in R^{self.M}"
         return self.DF(x)
     
@@ -61,6 +62,13 @@ class Function:
     def __rmul__(self, other):
         return self.__mul__(other)
     
+    def __truediv__(self, other):
+        if type(other) == float or type(other) == int:
+            return scale(self, 1/other)
+        else:
+            return divide(self, other)
+
+    
 def _compose(f: Function, g: Function) -> Function:
     """
     Compose two differentiable functions.
@@ -70,10 +78,10 @@ def _compose(f: Function, g: Function) -> Function:
     """
     assert f.N == g.M, "f and g must be composable"
 
-    def F(x: np.ndarray) -> np.ndarray:
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return g(f(x))
 
-    def DF(x: np.ndarray) -> np.ndarray:
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return g.differential(f(x)) @ f.differential(x)
 
     return Function(F, DF, f.M, g.N)
@@ -103,10 +111,10 @@ def add(f: Function, g: Function) -> Function:
     assert f.M == g.M, "f and g must have the same domain"
     assert f.N == g.N, "f and g must have the same codomain"
 
-    def F(x: np.ndarray) -> np.ndarray:
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return f(x) + g(x)
 
-    def DF(x: np.ndarray) -> np.ndarray:
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return f.differential(x) + g.differential(x)
 
     return Function(F, DF, f.M, f.N)
@@ -119,10 +127,10 @@ def scale(f: Function, c: float) -> Function:
     :return: function from R^M to R^N
     """
 
-    def F(x: np.ndarray) -> np.ndarray:
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return c * f(x)
 
-    def DF(x: np.ndarray) -> np.ndarray:
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return c * f.differential(x)
 
     return Function(F, DF, f.M, f.N)
@@ -137,11 +145,29 @@ def multiply(f: Function, g: Function) -> Function:
     assert f.M == g.M, "f and g must have the same domain"
     assert f.N == g.N == 1, "f and g must have codomain R"
 
-    def F(x: np.ndarray) -> np.ndarray:
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return f(x) * g(x)
 
-    def DF(x: np.ndarray) -> np.ndarray:
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return f.differential(x) * g(x) + f(x) * g.differential(x)
+
+    return Function(F, DF, f.M, f.N)
+
+def divide(f: Function, g: Function) -> Function:
+    """
+    Divide two differentiable functions.
+    :param f: function from R^M to R
+    :param g: function from R^M to R
+    :return: function from R^M to R
+    """
+    assert f.M == g.M, "f and g must have the same domain"
+    assert f.N == g.N == 1, "f and g must have codomain R"
+
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return f(x) / g(x)
+
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return (f.differential(x) * g(x) - f(x) * g.differential(x)) / (g(x)**2)
 
     return Function(F, DF, f.M, f.N)
 
@@ -154,10 +180,10 @@ def _stack(f: Function, g: Function) -> Function:
     """
     assert f.M == g.M, "f and g must have the same domain"
 
-    def F(x: np.ndarray) -> np.ndarray:
+    def F(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return np.hstack((f(x), g(x)))
 
-    def DF(x: np.ndarray) -> np.ndarray:
+    def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
         return np.vstack((f.differential(x), g.differential(x)))
 
     return Function(F, DF, f.M, f.N + g.N)

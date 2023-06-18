@@ -1,6 +1,7 @@
 from typing import Callable
 
 import numpy as np
+from numpy.typing import NDArray
 from sklearn.linear_model import Ridge
 
 from lib.functions import Function
@@ -8,11 +9,11 @@ from lib.functions import Function
 
 def gradient_descent(
     R: Function,
-    p0: np.ndarray,
+    p0: NDArray[np.float64],
     alpha: float,
     max_iter: int,
     silent: bool = True,
-) -> tuple[np.ndarray, np.float64]:
+) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gradient descent algorithm for nonlinear least squares.
     :param f: function to be minimized
@@ -28,25 +29,25 @@ def gradient_descent(
 
     DR = R.differential
     p = p0
-    err = np.linalg.norm(R(p))
 
     for i in range(max_iter):
-        err = np.linalg.norm(R(p))
         if not silent:
-            print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
+            err = np.linalg.norm(R(p))
+            print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
         p = p - alpha * DR(p).T @ R(p)
     
+    err = np.linalg.norm(R(p))
     return p, err
 
 
 def gauss_newton(
     R: Function,
-    p0: np.ndarray,
+    p0: NDArray[np.float64],
     max_iter: int,
     alpha: float = 1,
     step_type: str = "least_squares",
     silent: bool = True,
-) -> tuple[np.ndarray, np.float64]:
+) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gauss-Newton algorithm for unconstrained optimization.
     :param f: function to be minimized
@@ -60,44 +61,37 @@ def gauss_newton(
 
     DR = R.differential
     p = p0
-    err = np.linalg.norm(R(p))
 
     for i in range(max_iter):
-        err = np.linalg.norm(R(p))
         if not silent:
-            print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
-            try:
-                print(f"DR(p) rank = {np.linalg.matrix_rank(DR(p))}, DR(p).T @ DR(p) rank = {np.linalg.matrix_rank(DR(p).T @ DR(p))}")
-            except np.linalg.LinAlgError:
-                print(f"Failed to compute ranks of DR(p) and DR(p).T @ DR(p) matrices")
-        if step_type == "solve":
-            try:
+            err = np.linalg.norm(R(p))
+            print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
+        try:
+            if step_type == "solve":
                 d = np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
-            except np.linalg.LinAlgError:
-                print(f"Singular matrix encountered in {i}-th iteration. Returning current point.")
-                return p, err
-        elif step_type == "least_squares":
-            try:
+            elif step_type == "least_squares":
                 d = np.linalg.lstsq(DR(p), R(p), rcond=None)[0]
-            except np.linalg.LinAlgError:
-                print(f"Least squares failed in {i}-th iteration. Returning current point.")
-                return p, err
+        except np.linalg.LinAlgError:
+            err = np.linalg.norm(R(p))
+            print(f"Gauss-Newton ({step_type=}) failed in iteration nr {i}. Returning current point.")
+            return p, err
         p = p - alpha * d
 
+    err = np.linalg.norm(R(p))
     return p, err
 
 
 class LevenbergMarquardt:
     R: Function
-    DR: Callable[[np.ndarray], np.ndarray]
-    lambda_param_fun: Callable[[Function, Callable[[np.ndarray, float], np.ndarray], np.ndarray, int], float]
+    DR: Callable[[NDArray[np.float64]], NDArray[np.float64]]
+    lambda_param_fun: Callable[[Function, Callable[[NDArray[np.float64], float], NDArray[np.float64]], NDArray[np.float64], int], float]
     
     class LambdaParam:
         def __call__(
             self,
             R: Function,
-            step: Callable[[np.ndarray, float], np.ndarray],
-            p: np.ndarray,
+            step: Callable[[NDArray[np.float64], float], NDArray[np.float64]],
+            p: NDArray[np.float64],
             i: int,
         ) -> float:
             raise NotImplementedError
@@ -114,18 +108,23 @@ class LevenbergMarquardt:
         def __call__(
             self,
             R: Function,
-            step: Callable[[np.ndarray, float], np.ndarray],
-            p: np.ndarray,
+            step: Callable[[NDArray[np.float64], float], NDArray[np.float64]],
+            p: NDArray[np.float64],
             i: int,
         ) -> float:
             return self.value
         
     class LambdaParamDefaultModifier(LambdaParam):
+        """
+        Implementation of the algorithm described in "Choice of damping parameter" section in 
+        https://en.wikipedia.org/wiki/Levenberg%E2%80%93Marquardt_algorithm
+        """
         def __init__(
             self,
             lambda0: float,
             lambda_change: float,
             eps: float = 1e-16,
+            max_iter: int = 100,
         ):
             assert lambda_change > 1, "lambda_change must be greater than 1"
             assert lambda0 >= 0, "lambda0 must be non-negative"
@@ -135,39 +134,38 @@ class LevenbergMarquardt:
             self.value = lambda0
             self.value_change = lambda_change
             self.eps = eps
+            self.max_iter = max_iter
 
         def __call__(
             self,
             R: Function,
-            step: Callable[[np.ndarray, float], np.ndarray],
-            p: np.ndarray,
+            step: Callable[[NDArray[np.float64], float], NDArray[np.float64]],
+            p: NDArray[np.float64],
             i: int,
         ) -> float:
             if i == 0:
                 self.value = self.init_value
 
             current_err = np.linalg.norm(R(p))
-            next_err = np.linalg.norm(R(step(p, self.value)))
-
-            if self.value < self.eps:
-                return self.value
-
-            if current_err >= next_err:
-                self.value = self.value / self.value_change
-            else:
-                self.value = self.value * self.value_change
-                return self.__call__(R, step, p, i)
-
+            for _ in range(self.max_iter):
+                next_err1 = np.linalg.norm(R(step(p, self.value)))
+                next_err2 = np.linalg.norm(R(step(p, self.value / self.value_change)))
+                if next_err1 > current_err and next_err2 > current_err:
+                    self.value *= self.value_change
+                elif next_err2 < current_err:
+                    self.value /= self.value_change
+                    return self.value
+                else:
+                    return self.value
             return self.value
-
     def __init__(
         self,
         R: Function,
         lambda_param_fun: Callable[
             [
                 Function,
-                Callable[[np.ndarray, float], np.ndarray],
-                np.ndarray,
+                Callable[[NDArray[np.float64], float], NDArray[np.float64]],
+                NDArray[np.float64],
                 int,
             ],
             float,
@@ -177,7 +175,7 @@ class LevenbergMarquardt:
         self.DR = R.differential
         self.lambda_param_fun = lambda_param_fun
 
-    def step_solve(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+    def step_solve(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
         Solve operation is equivalent to the following:
         (DR(p).T @ DR(p) + lambda_param * np.eye(p.size))**(-1) @ DR(p)^T @ R(p)
@@ -188,7 +186,7 @@ class LevenbergMarquardt:
         )
         return p - d
     
-    def step_least_squares(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+    def step_least_squares(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
         Solve operation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
@@ -200,7 +198,7 @@ class LevenbergMarquardt:
         d = np.linalg.lstsq(A, b, rcond=None)[0].reshape(-1)
         return p - d
     
-    def step_ridge(self, p:np.ndarray, lambda_param: float) -> np.ndarray:
+    def step_ridge(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
         Solve operation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
@@ -210,10 +208,8 @@ class LevenbergMarquardt:
         d = ridge.coef_.reshape(-1)
         return p - d
 
-    def step(self, p: np.ndarray, lambda_param: float) -> np.ndarray:
-        if self.step_type == "default":
-            return self.step_solve(p, lambda_param)
-        elif self.step_type == "solve":
+    def step(self, p: NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
+        if self.step_type == "solve":
             return self.step_solve(p, lambda_param)
         elif self.step_type == "least_squares":
             return self.step_least_squares(p, lambda_param)
@@ -224,11 +220,11 @@ class LevenbergMarquardt:
 
     def optimize(
         self,
-        p0: np.ndarray,
+        p0: NDArray[np.float64],
         max_iter: int,
         silent: bool = True,
         step_type: str = "least_squares",
-    ) -> tuple[np.ndarray, np.float64]:
+    ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Levenberg-Marquardt algorithm for unconstrained optimization.
         :param f: function to be minimized
@@ -242,18 +238,17 @@ class LevenbergMarquardt:
         self.step_type = step_type 
 
         p = p0
-        err = np.linalg.norm(self.R(p))
 
         for i in range(max_iter):
-            err = np.linalg.norm(self.R(p))
-
             if not silent:
-                print(f"iter {i}: p = {p}, ||F(p)|| = {err}")
-
+                err = np.linalg.norm(self.R(p))
+                print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
             try:
                 p = self.step(p=p, lambda_param=self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
-                print(f"Levenberg-Marquardt: {i}-th iteration failed. Returning current point.")
+                err = np.linalg.norm(self.R(p))
+                print(f"Levenberg-Marquardt ({step_type=}) failed in iteration nr {i}. Returning current point.")
                 return p, err
 
+        err = np.linalg.norm(self.R(p))
         return p, err
