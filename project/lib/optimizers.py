@@ -97,21 +97,22 @@ def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_it
     x = np.zeros_like(b)
     r = b #  b - A @ x
     p = r
-    r_norm_old = r.T @ r
+    r_norm_sq_old = r.T @ r
+    if np.sqrt(r_norm_sq_old) < eps:
+        return x.reshape(-1), r_norm_sq_old
 
-    for i in range(max_iter):
+    for _ in range(max_iter):
         p_new = A.T @ (A @ p)
-        alpha = r_norm_old / (p.T @ p_new)
+        alpha = r_norm_sq_old / (p.T @ p_new)
         x = x + alpha * p
         r = r - alpha * p_new
-        r_norm_new = r.T @ r
-        if np.sqrt(r_norm_new) < eps:
+        r_norm_sq_new = r.T @ r
+        if np.sqrt(r_norm_sq_new) < eps:
             break
-        p = r + (r_norm_new / r_norm_new) * p
-        r_norm_old = r_norm_new
+        p = r + (r_norm_sq_new / r_norm_sq_new) * p
+        r_norm_sq_old = r_norm_sq_new
 
-    err = np.linalg.norm(A.T @ (A @ x) - b)
-    return x.reshape(-1), err
+    return x.reshape(-1), r_norm_sq_new
 
 class LevenbergMarquardt:
     R: Function
