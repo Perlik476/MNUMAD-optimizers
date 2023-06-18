@@ -81,7 +81,7 @@ def gauss_newton(
     return p, err
 
 
-def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_iter: int, eps: float = 1e-16) -> tuple[NDArray[np.float64], np.float64]:
+def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_iter: int, eps: float = 1e-6) -> tuple[NDArray[np.float64], np.float64]:
     """
     Conjugate gradient method for solving normal equations.
     :param A: matrix of the linear system
@@ -97,18 +97,18 @@ def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_it
     x = np.zeros_like(b)
     r = b #  b - A @ x
     p = r
-    rsold = r.T @ r
+    r_norm_old = r.T @ r
 
     for i in range(max_iter):
         p_new = A.T @ (A @ p)
-        alpha = rsold / (p.T @ p_new)
+        alpha = r_norm_old / (p.T @ p_new)
         x = x + alpha * p
         r = r - alpha * p_new
-        rsnew = r.T @ r
-        if np.sqrt(rsnew) < eps:
+        r_norm_new = r.T @ r
+        if np.sqrt(r_norm_new) < eps:
             break
-        p = r + (rsnew / rsold) * p
-        rsold = rsnew
+        p = r + (r_norm_new / r_norm_new) * p
+        r_norm_old = r_norm_new
 
     err = np.linalg.norm(A.T @ (A @ x) - b)
     return x.reshape(-1), err
@@ -250,7 +250,7 @@ class LevenbergMarquardt:
         A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
         b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
 
-        d, _ = cgnr_normal_equations(A, b, max_iter=self.step_max_iter)
+        d, _ = cgnr_normal_equations(A, b, max_iter=self.step_max_iter, eps=self.step_eps)
         return p - d
 
     def step(self, p: NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
@@ -272,6 +272,7 @@ class LevenbergMarquardt:
         silent: bool = True,
         step_type: str = "least_squares",
         step_max_iter: int = 10,
+        step_eps: float = 1e-6,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Optimize the function R(p) using Levenberg-Marquardt method
@@ -280,11 +281,13 @@ class LevenbergMarquardt:
         :param silent: if False, print logs at each iteration
         :param step_type: type of step to use, one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'
         :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
+        :param step_eps: tolerance for step method, only used if step_type is 'cgnr'
         """
         assert max_iter > 0, "max_iter must be positive"
         assert step_type in ["solve", "least_squares", "ridge", "cgnr"], "step_type must be one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'"
         self.step_type = step_type
         self.step_max_iter = step_max_iter
+        self.step_eps = step_eps
 
         p = p0
 
