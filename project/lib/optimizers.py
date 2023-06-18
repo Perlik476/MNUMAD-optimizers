@@ -2,7 +2,6 @@ from typing import Callable
 
 import numpy as np
 from numpy.typing import NDArray
-from sklearn.linear_model import Ridge
 
 from lib.functions import Function
 
@@ -103,6 +102,7 @@ def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_it
 
     r_norm_sq_new = r_norm_sq_old
     for i in range(max_iter):
+        # print(f"{i=}, {r_norm_sq_new=}, cond={np.linalg.cond(A.T @ A)}")
         p_new = A.T @ (A @ p)
         alpha = r_norm_sq_old / (p.T @ p_new)
         x = x + alpha * p
@@ -232,16 +232,6 @@ class LevenbergMarquardt:
         d = np.linalg.lstsq(A, b, rcond=None)[0].reshape(-1)
         return p - d
     
-    def step_ridge(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
-        """
-        Solve operation is equivalent to ridge regression:
-        ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
-        """
-        ridge = Ridge(alpha=np.sqrt(lambda_param), fit_intercept=False, solver='auto')
-        ridge.fit(self.DR(p), self.R(p))
-        d = ridge.coef_.reshape(-1)
-        return p - d
-    
     def step_cgnr(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
         Solve operation is equivalent to ridge regression:
@@ -254,16 +244,36 @@ class LevenbergMarquardt:
 
         d, _ = cgnr_normal_equations(A, b, max_iter=self.step_max_iter, eps=self.step_eps)
         return p - d
+    
+    def step_svd(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
+        """
+        Solve operation is equivalent to ridge regression:
+        ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
+        which is equivalent to the reformulated least squares problem,
+        which can be solved by SVD decomposition
+        """
+        A = self.DR(p)
+        b = self.R(p)
+        U, Sigma, VT = np.linalg.svd(A, full_matrices=False)
+        V = VT.T
+        y = np.linalg.solve(
+            np.diag(Sigma**2) + lambda_param * np.eye(p.size),
+            np.diag(Sigma) @ U.T @ b
+        )
+        x = V @ y
+        d = x
+
+        return p - d
 
     def step(self, p: NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         if self.step_type == "solve":
             return self.step_solve(p, lambda_param)
         elif self.step_type == "least_squares":
             return self.step_least_squares(p, lambda_param)
-        elif self.step_type == "ridge":
-            return self.step_ridge(p, lambda_param)
         elif self.step_type == "cgnr":
             return self.step_cgnr(p, lambda_param)
+        elif self.step_type == "svd":
+            return self.step_svd(p, lambda_param)
         else:
             raise NotImplementedError
 
@@ -281,12 +291,12 @@ class LevenbergMarquardt:
         :param p0: initial guess
         :param max_iter: maximum number of iterations
         :param silent: if False, print logs at each iteration
-        :param step_type: type of step to use, one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'
+        :param step_type: type of step to use, one of the following: 'solve', 'least_squares', 'svd', 'cgnr'
         :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
         :param step_eps: tolerance for step method, only used if step_type is 'cgnr'
         """
         assert max_iter > 0, "max_iter must be positive"
-        assert step_type in ["solve", "least_squares", "ridge", "cgnr"], "step_type must be one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'"
+        assert step_type in ["solve", "least_squares", "cgnr", "svd"], "step_type must be one of the following: 'solve', 'least_squares', 'cgnr', 'svd'"
         self.step_type = step_type
         self.step_max_iter = step_max_iter
         self.step_eps = step_eps
