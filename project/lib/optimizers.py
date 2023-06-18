@@ -95,18 +95,19 @@ def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_it
 
     b = A.T @ b
     x = np.zeros_like(b)
-    r = b #  b - A @ x
+    r = b  # b - A @ x
     p = r
-    r_norm_sq_old = r.T @ r
+    r_norm_sq_old = (r.T @ r)[0, 0]
     if np.sqrt(r_norm_sq_old) < eps:
         return x.reshape(-1), r_norm_sq_old
 
-    for _ in range(max_iter):
+    r_norm_sq_new = r_norm_sq_old
+    for i in range(max_iter):
         p_new = A.T @ (A @ p)
         alpha = r_norm_sq_old / (p.T @ p_new)
         x = x + alpha * p
         r = r - alpha * p_new
-        r_norm_sq_new = r.T @ r
+        r_norm_sq_new = (r.T @ r)[0, 0]
         if np.sqrt(r_norm_sq_new) < eps:
             break
         p = r + (r_norm_sq_new / r_norm_sq_new) * p
@@ -271,9 +272,9 @@ class LevenbergMarquardt:
         p0: NDArray[np.float64],
         max_iter: int,
         silent: bool = True,
-        step_type: str = "least_squares",
-        step_max_iter: int = 10,
-        step_eps: float = 1e-6,
+        step_type: str = "cgnr",
+        step_max_iter: int = 100,
+        step_eps: float = 1e-16,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Optimize the function R(p) using Levenberg-Marquardt method
