@@ -81,6 +81,38 @@ def gauss_newton(
     return p, err
 
 
+def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_iter: int, eps: float = 1e-16) -> tuple[NDArray[np.float64], np.float64]:
+    """
+    Conjugate gradient method for solving normal equations.
+    :param A: matrix of the linear system
+    :param b: right-hand side of the linear system
+    :param max_iter: maximum number of iterations
+    :param eps: tolerance
+    :return: solution of the linear system
+    """
+    assert max_iter > 0, "max_iter must be positive"
+    assert eps > 0, "eps must be positive"
+
+    b = A.T @ b
+    x = np.zeros_like(b)
+    r = b #  b - A @ x
+    p = r
+    rsold = r.T @ r
+
+    for i in range(max_iter):
+        p_new = A.T @ (A @ p)
+        alpha = rsold / (p.T @ p_new)
+        x = x + alpha * p
+        r = r - alpha * p_new
+        rsnew = r.T @ r
+        if np.sqrt(rsnew) < eps:
+            break
+        p = r + (rsnew / rsold) * p
+        rsold = rsnew
+
+    err = np.linalg.norm(A.T @ (A @ x) - b)
+    return x.reshape(-1), err
+
 class LevenbergMarquardt:
     R: Function
     DR: Callable[[NDArray[np.float64]], NDArray[np.float64]]
@@ -207,6 +239,19 @@ class LevenbergMarquardt:
         ridge.fit(self.DR(p), self.R(p))
         d = ridge.coef_.reshape(-1)
         return p - d
+    
+    def step_cgnr(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
+        """
+        Solve operation is equivalent to ridge regression:
+        ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
+        which is equivalent to the reformulated least squares problem,
+        which can be solved iteratively by CGNR method
+        """
+        A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
+        b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
+
+        d, _ = cgnr_normal_equations(A, b, max_iter=self.step_max_iter)
+        return p - d
 
     def step(self, p: NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         if self.step_type == "solve":
@@ -215,6 +260,8 @@ class LevenbergMarquardt:
             return self.step_least_squares(p, lambda_param)
         elif self.step_type == "ridge":
             return self.step_ridge(p, lambda_param)
+        elif self.step_type == "cgnr":
+            return self.step_cgnr(p, lambda_param)
         else:
             raise NotImplementedError
 
@@ -224,18 +271,20 @@ class LevenbergMarquardt:
         max_iter: int,
         silent: bool = True,
         step_type: str = "least_squares",
+        step_max_iter: int = 10,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
-        Levenberg-Marquardt algorithm for unconstrained optimization.
-        :param f: function to be minimized
-        :param df: gradient of f
-        :param x0: initial point
+        Optimize the function R(p) using Levenberg-Marquardt method
+        :param p0: initial guess
         :param max_iter: maximum number of iterations
-        :return: minimum point
+        :param silent: if False, print logs at each iteration
+        :param step_type: type of step to use, one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'
+        :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
         """
         assert max_iter > 0, "max_iter must be positive"
-        assert step_type in ["solve", "least_squares", "ridge"], "step_type must be one of the following: 'solve', 'least_squares', 'ridge'"
-        self.step_type = step_type 
+        assert step_type in ["solve", "least_squares", "ridge", "cgnr"], "step_type must be one of the following: 'solve', 'least_squares', 'ridge', 'cgnr'"
+        self.step_type = step_type
+        self.step_max_iter = step_max_iter
 
         p = p0
 
