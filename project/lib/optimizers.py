@@ -56,7 +56,7 @@ def gauss_newton(
     :return: minimum point
     """
     assert max_iter > 0, "max_iter must be positive"
-    assert step_type == "solve" or step_type == "least_squares", "step_type must be 'solve' or 'least_squares'"
+    assert step_type == "cholesky" or step_type == "least_squares", "step_type must be 'cholesky' or 'least_squares'"
 
     DR = R.differential
     p = p0
@@ -66,8 +66,13 @@ def gauss_newton(
             err = np.linalg.norm(R(p))
             print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
         try:
-            if step_type == "solve":
-                d = np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
+            if step_type == "cholesky":
+                try:
+                    L = np.linalg.cholesky(DR(p).T @ DR(p))
+                    y = np.linalg.solve(L, DR(p).T @ R(p))
+                    d = np.linalg.solve(L.T, y)
+                except np.linalg.LinAlgError:
+                    d = np.linalg.solve(DR(p).T @ DR(p), DR(p).T @ R(p))
             elif step_type == "least_squares":
                 d = np.linalg.lstsq(DR(p), R(p), rcond=None)[0]
         except np.linalg.LinAlgError:
@@ -80,40 +85,43 @@ def gauss_newton(
     return p, err
 
 
-def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_iter: int, eps: float = 1e-6) -> tuple[NDArray[np.float64], np.float64]:
+def cgnr_normal_equations(A: NDArray[np.float64], b: NDArray[np.float64], max_iter: int, eps: float = 1e-6) -> NDArray[np.float64]:
     """
     Conjugate gradient method for solving normal equations.
-    :param A: matrix of the linear system
-    :param b: right-hand side of the linear system
+    :param A: matrix of the least squares problem
+    :param b: right-hand side of the least squares problem
     :param max_iter: maximum number of iterations
     :param eps: tolerance
-    :return: solution of the linear system
+    :return: solution of the least squares problem
     """
     assert max_iter > 0, "max_iter must be positive"
     assert eps > 0, "eps must be positive"
 
-    b = A.T @ b
-    x = np.zeros_like(b)
-    r = b  # b - A @ x
-    p = r
-    r_norm_sq_old = (r.T @ r)[0, 0]
-    if np.sqrt(r_norm_sq_old) < eps:
-        return x.reshape(-1), r_norm_sq_old
+    assert A.shape[0] == b.shape[0], "A and b must have the same number of rows"
 
-    r_norm_sq_new = r_norm_sq_old
-    for i in range(max_iter):
-        # print(f"{i=}, {r_norm_sq_new=}, cond={np.linalg.cond(A.T @ A)}")
-        p_new = A.T @ (A @ p)
-        alpha = r_norm_sq_old / (p.T @ p_new)
-        x = x + alpha * p
-        r = r - alpha * p_new
-        r_norm_sq_new = (r.T @ r)[0, 0]
-        if np.sqrt(r_norm_sq_new) < eps:
+    # B = A.T @ A
+    c = A.T @ b
+
+    x = np.zeros_like(c)
+    s = c  # s = c - B @ x
+    p = s
+    beta = 0.
+    rho_old = (s.T @ s)[0, 0]
+    rho_new = rho_old
+
+    for _ in range(max_iter):
+        if np.sqrt(rho_new) < eps:
             break
-        p = r + (r_norm_sq_new / r_norm_sq_new) * p
-        r_norm_sq_old = r_norm_sq_new
+        p = s + beta * p
+        Bp = A.T @ (A @ p)
+        alpha = rho_old / (p.T @ Bp)
+        x = x + alpha * p
+        s = s - alpha * Bp
+        rho_new = (s.T @ s)[0, 0]
+        beta = rho_new / rho_old
+        rho_old = rho_new
 
-    return x.reshape(-1), r_norm_sq_new
+    return x.reshape(-1)
 
 class LevenbergMarquardt:
     R: Function
@@ -209,15 +217,20 @@ class LevenbergMarquardt:
         self.DR = R.differential
         self.lambda_param_fun = lambda_param_fun
 
-    def step_solve(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
+    def step_cholesky(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
         Solve operation is equivalent to the following:
         (DR(p).T @ DR(p) + lambda_param * np.eye(p.size))**(-1) @ DR(p)^T @ R(p)
         """
-        d = np.linalg.solve(
-            self.DR(p).T @ self.DR(p) + lambda_param * np.eye(p.size),
-            self.DR(p).T @ self.R(p),
-        )
+        try:
+            L = np.linalg.cholesky(self.DR(p).T @ self.DR(p) + lambda_param * np.eye(p.size))
+            y = np.linalg.solve(L, self.DR(p).T @ self.R(p))
+            d = np.linalg.solve(L.T, y)
+        except np.linalg.LinAlgError:
+            d = np.linalg.solve(
+                self.DR(p).T @ self.DR(p) + lambda_param * np.eye(p.size),
+                self.DR(p).T @ self.R(p),
+            )
         return p - d
     
     def step_least_squares(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
@@ -242,7 +255,7 @@ class LevenbergMarquardt:
         A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
         b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
 
-        d, _ = cgnr_normal_equations(A, b, max_iter=self.step_max_iter, eps=self.step_eps)
+        d = cgnr_normal_equations(A, b, max_iter=self.step_max_iter, eps=self.step_tol)
         return p - d
     
     def step_svd(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
@@ -254,20 +267,21 @@ class LevenbergMarquardt:
         """
         A = self.DR(p)
         b = self.R(p)
-        U, Sigma, VT = np.linalg.svd(A, full_matrices=False)
+        U, sigma, VT = np.linalg.svd(A, full_matrices=False)
         V = VT.T
-        y = np.linalg.solve(
-            np.diag(Sigma**2) + lambda_param * np.eye(p.size),
-            np.diag(Sigma) @ U.T @ b
-        )
+        # y = np.linalg.solve(
+        #     np.diag(sigma**2) + lambda_param * np.eye(p.size),
+        #     np.diag(sigma) @ U.T @ b
+        # )
+        y = (sigma / (sigma**2 + lambda_param)) * (U.T @ b)
         x = V @ y
-        d = x
 
+        d = x
         return p - d
 
     def step(self, p: NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
-        if self.step_type == "solve":
-            return self.step_solve(p, lambda_param)
+        if self.step_type == "cholesky":
+            return self.step_cholesky(p, lambda_param)
         elif self.step_type == "least_squares":
             return self.step_least_squares(p, lambda_param)
         elif self.step_type == "cgnr":
@@ -284,22 +298,22 @@ class LevenbergMarquardt:
         silent: bool = True,
         step_type: str = "cgnr",
         step_max_iter: int = 100,
-        step_eps: float = 1e-16,
+        step_tol: float = 1e-16,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Optimize the function R(p) using Levenberg-Marquardt method
         :param p0: initial guess
         :param max_iter: maximum number of iterations
         :param silent: if False, print logs at each iteration
-        :param step_type: type of step to use, one of the following: 'solve', 'least_squares', 'svd', 'cgnr'
+        :param step_type: type of step to use, one of the following: 'cholesky', 'least_squares', 'svd', 'cgnr'
         :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
-        :param step_eps: tolerance for step method, only used if step_type is 'cgnr'
+        :param step_tol: tolerance for step method, only used if step_type is 'cgnr'
         """
         assert max_iter > 0, "max_iter must be positive"
-        assert step_type in ["solve", "least_squares", "cgnr", "svd"], "step_type must be one of the following: 'solve', 'least_squares', 'cgnr', 'svd'"
+        assert step_type in ["cholesky", "least_squares", "cgnr", "svd"], "step_type must be one of the following: 'cholesky', 'least_squares', 'cgnr', 'svd'"
         self.step_type = step_type
         self.step_max_iter = step_max_iter
-        self.step_eps = step_eps
+        self.step_tol = step_tol
 
         p = p0
 
