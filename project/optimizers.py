@@ -3,7 +3,7 @@ from typing import Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from lib.functions import Function
+from functions import Function
 
 
 def gradient_descent(
