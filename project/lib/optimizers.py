@@ -298,7 +298,7 @@ class LevenbergMarquardt:
         silent: bool = True,
         step_type: str = "cgnr",
         step_max_iter: int = 100,
-        step_tol: float = 1e-16,
+        step_tol: float = 1e-6,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Optimize the function R(p) using Levenberg-Marquardt method
