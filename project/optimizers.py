@@ -11,7 +11,6 @@ def gradient_descent(
     p0: NDArray[np.float64],
     alpha: float,
     max_iter: int,
-    silent: bool = True,
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gradient descent algorithm for nonlinear least squares.
@@ -30,9 +29,6 @@ def gradient_descent(
     p = p0
 
     for i in range(max_iter):
-        if not silent:
-            err = np.linalg.norm(R(p))
-            print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
         p = p - alpha * DR(p).T @ R(p)
     
     err = np.linalg.norm(R(p))
@@ -45,7 +41,6 @@ def gauss_newton(
     max_iter: int,
     alpha: float = 1,
     step_type: str = "least_squares",
-    silent: bool = True,
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gauss-Newton algorithm for unconstrained optimization.
@@ -62,9 +57,6 @@ def gauss_newton(
     p = p0
 
     for i in range(max_iter):
-        if not silent:
-            err = np.linalg.norm(R(p))
-            print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
         try:
             if step_type == "cholesky":
                 try:
@@ -80,11 +72,6 @@ def gauss_newton(
             print(f"Gauss-Newton ({step_type=}) failed in iteration nr {i}. Returning current point.")
             return p, err
         p = p - alpha * d
-        
-        # A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
-        # b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
-
-        # d = np.linalg.lstsq(A, b, rcond=None)[0].reshape(-1)
 
     err = np.linalg.norm(R(p))
     return p, err
@@ -224,7 +211,7 @@ class LevenbergMarquardt:
 
     def step_cholesky(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
-        Solve operation is equivalent to the following:
+        Step direction evaluation is equivalent to caluclating the following:
         (DR(p).T @ DR(p) + lambda_param * np.eye(p.size))**(-1) @ DR(p)^T @ R(p)
         """
         try:
@@ -240,7 +227,7 @@ class LevenbergMarquardt:
     
     def step_least_squares(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
-        Solve operation is equivalent to ridge regression:
+        Step direction evaluation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
         which is equivalent to the reformulated least squares problem
         """
@@ -252,7 +239,7 @@ class LevenbergMarquardt:
     
     def step_cgnr(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
-        Solve operation is equivalent to ridge regression:
+        Step direction evaluation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
         which is equivalent to the reformulated least squares problem,
         which can be solved iteratively by CGNR method
@@ -265,7 +252,7 @@ class LevenbergMarquardt:
     
     def step_svd(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:
         """
-        Solve operation is equivalent to ridge regression:
+        Step direction evaluation is equivalent to ridge regression:
         ||DR(p) @ d + R(p)||^2 + sqrt(lambda_param) * ||d||^2 -> min_d!
         which is equivalent to the reformulated least squares problem,
         which can be solved by SVD decomposition
@@ -300,7 +287,6 @@ class LevenbergMarquardt:
         self,
         p0: NDArray[np.float64],
         max_iter: int,
-        silent: bool = True,
         step_type: str = "cgnr",
         step_max_iter: int = 100,
         step_tol: float = 1e-6,
@@ -309,7 +295,6 @@ class LevenbergMarquardt:
         Optimize the function R(p) using Levenberg-Marquardt method
         :param p0: initial guess
         :param max_iter: maximum number of iterations
-        :param silent: if False, print logs at each iteration
         :param step_type: type of step to use, one of the following: 'cholesky', 'least_squares', 'svd', 'cgnr'
         :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
         :param step_tol: tolerance for step method, only used if step_type is 'cgnr'
@@ -323,9 +308,6 @@ class LevenbergMarquardt:
         p = p0
 
         for i in range(max_iter):
-            if not silent:
-                err = np.linalg.norm(self.R(p))
-                print(f"iter {i}: p = {p}, ||R(p)|| = {err}")
             try:
                 p = self.step(p=p, lambda_param=self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
