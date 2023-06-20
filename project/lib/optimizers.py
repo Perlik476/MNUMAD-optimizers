@@ -80,6 +80,11 @@ def gauss_newton(
             print(f"Gauss-Newton ({step_type=}) failed in iteration nr {i}. Returning current point.")
             return p, err
         p = p - alpha * d
+        
+        # A = np.vstack((self.DR(p), np.sqrt(lambda_param) * np.eye(p.size)))
+        # b = np.vstack((self.R(p).reshape(-1, 1), np.zeros((p.size, 1))))
+
+        # d = np.linalg.lstsq(A, b, rcond=None)[0].reshape(-1)
 
     err = np.linalg.norm(R(p))
     return p, err
