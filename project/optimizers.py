@@ -288,7 +288,7 @@ class LevenbergMarquardt:
         p0: NDArray[np.float64],
         max_iter: int,
         step_type: str = "cgnr",
-        step_max_iter: int = 100,
+        step_max_iter: int = 10,
         step_tol: float = 1e-6,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
