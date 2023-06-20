@@ -14,8 +14,7 @@ def gradient_descent(
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gradient descent algorithm for nonlinear least squares.
-    :param f: function to be minimized
-    :param df: gradient of f
+    :param R: function to be minimized
     :param p0: initial point
     :param alpha: step size
     :param max_iter: maximum number of iterations
@@ -44,10 +43,11 @@ def gauss_newton(
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gauss-Newton algorithm for unconstrained optimization.
-    :param f: function to be minimized
-    :param df: gradient of f
-    :param x0: initial point
+    :param R: function to be minimized
+    :param p0: initial point
     :param max_iter: maximum number of iterations
+    :param alpha: step size
+    :param step_type: type of step to take (either 'cholesky' or 'least_squares')
     :return: minimum point
     """
     assert max_iter > 0, "max_iter must be positive"
