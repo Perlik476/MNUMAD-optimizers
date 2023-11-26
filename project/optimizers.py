@@ -24,12 +24,45 @@ def gradient_descent(
     assert max_iter > 0, "max_iter must be positive"
     assert alpha > 0, "alpha must be positive"
 
-    DR = R.differential
+    DR = R.differential()
     p = p0
 
     for i in range(max_iter):
         p = p - alpha * DR(p).T @ R(p)
     
+    err = np.linalg.norm(R(p))
+    return p, err
+
+
+def newton(
+    R: Function,
+    p0: NDArray[np.float64],
+    max_iter: int,
+) -> tuple[NDArray[np.float64], np.float64]:
+    """
+    Newton's method for nonlinear least squares.
+    :param R: function to be minimized
+    :param p0: initial point
+    :param max_iter: maximum number of iterations
+    :return: minimum point
+    """
+    assert max_iter > 0, "max_iter must be positive"
+
+    DR = R.differential()
+    D2R = R.differential(2)
+    p = p0
+
+    for i in range(max_iter):
+        try:
+            # make R(p) of shape (N, 1)
+            # RpT = R(p).reshape(-1, 1)
+            d = np.linalg.solve(DR(p).T @ DR(p) + D2R(p).T @ R(p), DR(p).T @ R(p))
+        except np.linalg.LinAlgError:
+            err = np.linalg.norm(R(p))
+            print(f"Newton failed in iteration nr {i}. Returning current point.")
+            return p, err
+        p = p - d
+
     err = np.linalg.norm(R(p))
     return p, err
 
@@ -53,7 +86,7 @@ def gauss_newton(
     assert max_iter > 0, "max_iter must be positive"
     assert step_type == "cholesky" or step_type == "least_squares", "step_type must be 'cholesky' or 'least_squares'"
 
-    DR = R.differential
+    DR = R.differential()
     p = p0
 
     for i in range(max_iter):
@@ -206,7 +239,7 @@ class LevenbergMarquardt:
         ],
     ):
         self.R = R
-        self.DR = R.differential
+        self.DR = R.differential()
         self.lambda_param_fun = lambda_param_fun
 
     def step_cholesky(self, p:NDArray[np.float64], lambda_param: float) -> NDArray[np.float64]:

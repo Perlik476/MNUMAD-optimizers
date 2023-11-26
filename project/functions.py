@@ -1,4 +1,5 @@
-from typing import Callable
+from functools import reduce
+from typing import Callable, Optional, Union
 import numpy as np
 from numpy.typing import NDArray
 
@@ -7,6 +8,7 @@ class Function:
         self,
         F: Callable[[NDArray[np.float64]], NDArray[np.float64]],
         DF: Callable[[NDArray[np.float64]], NDArray[np.float64]],
+        D2F: Callable[[NDArray[np.float64]], NDArray[np.float64]],
         M: int,
         N: int,
     ):
@@ -20,22 +22,21 @@ class Function:
         assert M > 0, "M must be positive"
         assert type(N) == int, "N must be an integer"
         assert type(M) == int, "M must be an integer"
-
-        # check that F and DF are functions from R^M to R^N and R^(NxM) respectively
         
         arg = np.random.randn(M)
-        assert F(arg).size == N, "F must be a function from R^M to R^N"
-
-        if N == 1:
+        assert F(arg).size == N, f"F must be a function from R^{M} to R^{N}, but F({arg}) is in R^{F(arg).size}"
+        if DF(arg).shape != (N, M) and DF(arg).reshape(-1).size == N * M:
             DF_old = DF
-            DF = lambda x: DF_old(x).reshape(1, M)
-        elif M == 1:
-            DF_old = DF
-            DF = lambda x: DF_old(x).reshape(N, 1)
-        assert DF(arg).shape == (N, M), "DF must be a function from R^M to R^(NxM)"
+            DF = lambda x: DF_old(x).reshape(N, M)
+        assert DF(arg).shape == (N, M), f"DF must be a function from R^{M} to R^{N}xR^{M}, but DF({arg}) is in R^{DF(arg).shape}"
+        if D2F(arg).shape != (N, M, M) and D2F(arg).reshape(-1).size == N * M * M:
+            D2F_old = D2F
+            D2F = lambda x: D2F_old(x).reshape(N, M, M)
+        assert D2F(arg).shape == (N, M, M), f"D2F must be a function from R^{M} to R^{N}xR^{M}xR^{M}, but D2F({arg}) is in R^{D2F(arg).shape}"
 
         self.F = F
         self.DF = DF
+        self.D2F = D2F
         self.M = M
         self.N = N
 
@@ -43,9 +44,21 @@ class Function:
         assert x.size == self.M, f"x must be in R^{self.M}"
         return self.F(x)
 
-    def differential(self, x: NDArray[np.float64]) -> NDArray[np.float64]:
-        assert x.size == self.M, f"x must be in R^{self.M}"
-        return self.DF(x)
+    def differential(self, n: int = 1) -> Callable[[NDArray[np.float64]], NDArray[np.float64]]:
+        """
+        :param n: order of differential
+        :return: differential of order n
+        """
+        assert n >= 0, "n must be non-negative"
+        if n == 0:
+            return self.F
+        elif n == 1:
+            return self.DF
+        elif n == 2:
+            return self.D2F
+        else:
+            raise NotImplementedError
+        
     
     def __add__(self, other):
         return add(self, other)
@@ -82,9 +95,12 @@ def _compose(f: Function, g: Function) -> Function:
         return g(f(x))
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return g.differential(f(x)) @ f.differential(x)
+        return g.differential()(f(x)) @ f.differential()(x)
 
-    return Function(F, DF, f.M, g.N)
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return g.differential(2)(f(x)) @ f.differential()(x) @ f.differential()(x).T + f.differential(2)(x).T @ g.differential()(f(x)).T
+
+    return Function(F, DF, D2F, f.M, g.N)
 
 def compose(*functions: Function) -> Function:
     """
@@ -115,9 +131,13 @@ def add(f: Function, g: Function) -> Function:
         return f(x) + g(x)
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return f.differential(x) + g.differential(x)
-
-    return Function(F, DF, f.M, f.N)
+        return f.differential()(x) + g.differential()(x)
+    
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return f.differential(2)(x) + g.differential(2)(x)
+    
+    return Function(F, DF, D2F, f.M, f.N)
+    
 
 def scale(f: Function, c: float) -> Function:
     """
@@ -131,9 +151,12 @@ def scale(f: Function, c: float) -> Function:
         return c * f(x)
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return c * f.differential(x)
+        return c * f.differential()(x)
+    
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return c * f.differential(2)(x)
 
-    return Function(F, DF, f.M, f.N)
+    return Function(F, DF, D2F, f.M, f.N)
 
 def multiply(f: Function, g: Function) -> Function:
     """
@@ -149,9 +172,12 @@ def multiply(f: Function, g: Function) -> Function:
         return f(x) * g(x)
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return f.differential(x) * g(x) + f(x) * g.differential(x)
-
-    return Function(F, DF, f.M, f.N)
+        return f(x) * g.differential()(x) + g(x) * f.differential()(x)
+    
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return f(x) * g.differential(2)(x) + 2 * g.differential()(x) * f.differential()(x) + g(x) * f.differential(2)(x)
+    
+    return Function(F, DF, D2F, f.M, f.N)
 
 def divide(f: Function, g: Function) -> Function:
     """
@@ -167,13 +193,18 @@ def divide(f: Function, g: Function) -> Function:
         return f(x) / g(x)
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return (f.differential(x) * g(x) - f(x) * g.differential(x)) / (g(x)**2)
+        return (f.differential()(x) * g(x) - f(x) * g.differential()(x)) / (g(x) ** 2)
+    
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        # TODO: check this
+        # return (f.differential(2)(x) * g(x) - 2 * f.differential()(x) * g.differential()(x) + f(x) * g.differential(2)(x)) / (g(x) ** 2) - 2 * (f.differential()(x) * g(x) - f(x) * g.differential()(x)) * g.differential()(x) / (g(x) ** 3)
+        return (f.differential(2)(x) * g(x)**2 - g(x) * (2 * f.differential()(x) * g.differential()(x) + f(x) + g.differential(2)(x)) + 2 * f(x) * g.differential()(x)**2) / g(x) ** 3
 
-    return Function(F, DF, f.M, f.N)
+    return Function(F, DF, D2F, f.M, f.N)
 
 def _stack(f: Function, g: Function) -> Function:
     """
-    Stack two differentiable functions.
+    Stack two differentiable functions, i.e. f(x) = [f_1(x), f_2(x)]^T.
     :param f: function from R^M to R^N
     :param g: function from R^M to R^K
     :return: function from R^M to R^(N+K)
@@ -184,9 +215,13 @@ def _stack(f: Function, g: Function) -> Function:
         return np.hstack((f(x), g(x)))
 
     def DF(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return np.vstack((f.differential(x), g.differential(x)))
-
-    return Function(F, DF, f.M, f.N + g.N)
+        return np.vstack((f.differential()(x), g.differential()(x)))
+    
+    def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.vstack((f.differential(2)(x), g.differential(2)(x)))
+        
+    
+    return Function(F, DF, D2F, f.M, f.N + g.N)
 
 def stack(*functions: Function) -> Function:
     """
