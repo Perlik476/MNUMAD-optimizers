@@ -1,7 +1,8 @@
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
+from tqdm import tqdm
 
 from functions import Function
 
@@ -11,6 +12,8 @@ def gradient_descent(
     p0: NDArray[np.float64],
     alpha: float,
     max_iter: int,
+    errs: Optional[list[float]] = None,
+    log_interval: Optional[int] = None,
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gradient descent algorithm for nonlinear least squares.
@@ -18,6 +21,8 @@ def gradient_descent(
     :param p0: initial point
     :param alpha: step size
     :param max_iter: maximum number of iterations
+    :param errs: list to store errors in
+    :param log_interval: interval to log errors in
     :return: minimum point
     """
 
@@ -27,8 +32,11 @@ def gradient_descent(
     DR = R.differential()
     p = p0
 
-    for i in range(max_iter):
+    for i in tqdm(range(max_iter), desc=f"Gradient descent"):
         p = p - alpha * DR(p).T @ R(p)
+        if errs is not None:
+            if log_interval is None or i % log_interval == 0:
+                errs.append(np.linalg.norm(R(p)))
     
     err = np.linalg.norm(R(p))
     return p, err
@@ -38,12 +46,18 @@ def newton(
     R: Function,
     p0: NDArray[np.float64],
     max_iter: int,
+    alpha: float = 1,
+    errs: Optional[list[float]] = None,
+    log_interval: Optional[int] = None,
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Newton's method for nonlinear least squares.
     :param R: function to be minimized
     :param p0: initial point
     :param max_iter: maximum number of iterations
+    :param alpha: step size
+    :param errs: list to store errors in
+    :param log_interval: interval to log errors in
     :return: minimum point
     """
     assert max_iter > 0, "max_iter must be positive"
@@ -52,7 +66,7 @@ def newton(
     D2R = R.differential(2)
     p = p0
 
-    for i in range(max_iter):
+    for i in tqdm(range(max_iter), desc=f"Newton"):
         try:
             # make R(p) of shape (N, 1)
             # RpT = R(p).reshape(-1, 1)
@@ -61,7 +75,10 @@ def newton(
             err = np.linalg.norm(R(p))
             print(f"Newton failed in iteration nr {i}. Returning current point.")
             return p, err
-        p = p - d
+        p = p - alpha * d
+        if errs is not None:
+            if log_interval is None or i % log_interval == 0:
+                errs.append(np.linalg.norm(R(p)))
 
     err = np.linalg.norm(R(p))
     return p, err
@@ -73,6 +90,8 @@ def gauss_newton(
     max_iter: int,
     alpha: float = 1,
     step_type: str = "least_squares",
+    errs: Optional[list[float]] = None,
+    log_interval: Optional[int] = None,
 ) -> tuple[NDArray[np.float64], np.float64]:
     """
     Gauss-Newton algorithm for unconstrained optimization.
@@ -81,6 +100,8 @@ def gauss_newton(
     :param max_iter: maximum number of iterations
     :param alpha: step size
     :param step_type: type of step to take (either 'cholesky' or 'least_squares')
+    :param errs: list to store errors in
+    :param log_interval: interval to log errors in
     :return: minimum point
     """
     assert max_iter > 0, "max_iter must be positive"
@@ -89,7 +110,7 @@ def gauss_newton(
     DR = R.differential()
     p = p0
 
-    for i in range(max_iter):
+    for i in tqdm(range(max_iter), desc=f"Gauss-Newton"):
         try:
             if step_type == "cholesky":
                 try:
@@ -105,6 +126,9 @@ def gauss_newton(
             print(f"Gauss-Newton ({step_type=}) failed in iteration nr {i}. Returning current point.")
             return p, err
         p = p - alpha * d
+        if errs is not None:
+            if log_interval is None or i % log_interval == 0:
+                errs.append(np.linalg.norm(R(p)))
 
     err = np.linalg.norm(R(p))
     return p, err
@@ -323,6 +347,8 @@ class LevenbergMarquardt:
         step_type: str = "cgnr",
         step_max_iter: int = 10,
         step_tol: float = 1e-6,
+        errs: Optional[list[float]] = None,
+        log_interval: Optional[int] = None,
     ) -> tuple[NDArray[np.float64], np.float64]:
         """
         Optimize the function R(p) using Levenberg-Marquardt method
@@ -331,6 +357,8 @@ class LevenbergMarquardt:
         :param step_type: type of step to use, one of the following: 'cholesky', 'least_squares', 'svd', 'cgnr'
         :param step_max_iter: maximum number of iterations for step method, only used if step_type is 'cgnr'
         :param step_tol: tolerance for step method, only used if step_type is 'cgnr'
+        :param errs: list to store errors in
+        :param log_interval: interval to log errors in
         """
         assert max_iter > 0, "max_iter must be positive"
         assert step_type in ["cholesky", "least_squares", "cgnr", "svd"], "step_type must be one of the following: 'cholesky', 'least_squares', 'cgnr', 'svd'"
@@ -340,13 +368,16 @@ class LevenbergMarquardt:
 
         p = p0
 
-        for i in range(max_iter):
+        for i in tqdm(range(max_iter), desc=f"Levenberg-Marquardt"):
             try:
                 p = self.step(p=p, lambda_param=self.lambda_param_fun(self.R, self.step, p, i))
             except np.linalg.LinAlgError:
                 err = np.linalg.norm(self.R(p))
                 print(f"Levenberg-Marquardt ({step_type=}) failed in iteration nr {i}. Returning current point.")
                 return p, err
+            if errs is not None:
+                if log_interval is None or i % log_interval == 0:
+                    errs.append(np.linalg.norm(self.R(p)))
 
         err = np.linalg.norm(self.R(p))
         return p, err

@@ -237,3 +237,18 @@ def stack(*functions: Function) -> Function:
     for g in functions[1:]:
         f = _stack(f, g)
     return f
+
+
+sin = Function(F=np.sin, DF=lambda x: np.cos(x), D2F=lambda x: -np.sin(x), M=1, N=1)
+cos = Function(F=np.cos, DF=lambda x: -np.sin(x), D2F=lambda x: -np.cos(x), M=1, N=1)
+exp = Function(F=np.exp, DF=np.exp, D2F=np.exp, M=1, N=1)
+log = Function(F=lambda x: np.log(np.abs(x)), DF=lambda x: 1 / x, D2F=lambda x: -1 / x**2, M=1, N=1)
+square = Function(F=lambda x: x**2, DF=lambda x: 2 * x, D2F=lambda x: 2 * np.eye(1), M=1, N=1)
+abs = Function(F=np.abs, DF=lambda x: np.sign(x), D2F=lambda x: np.zeros_like(x), M=1, N=1)
+sqrt = Function(F=lambda x: np.sqrt(np.abs(x)), DF=lambda x: 1 / (2 * np.sqrt(np.abs(x))) * np.sign(x), D2F=lambda x: - 1 / (4 * np.abs(x)**(3 / 2)), M=1, N=1)
+norm_sqr = lambda M: Function(F=lambda x: np.array(np.linalg.norm(x)**2), DF=lambda x: 2 * x, D2F=lambda x: 2 * np.eye(len(x)), M=M, N=1)
+sum_ = lambda M: Function(F=np.sum, DF=lambda x: np.ones_like(x), D2F=lambda _: np.zeros((M, M)), M=M, N=1)
+proj = lambda M: lambda k: Function(F=lambda x: x[k], DF=lambda x: np.eye(M)[k], D2F=lambda x: np.zeros((len(x), len(x))), M=M, N=1)
+constM = lambda M: lambda c: Function(F=lambda _: np.array(c), DF=lambda _: np.zeros(M), D2F=lambda _: np.zeros((M, M)), M=M, N=1)
+const1 = lambda c: Function(F=lambda _: np.array(c), DF=lambda _: np.zeros(1), D2F=lambda _: np.zeros((1, 1)), M=1, N=1)
+mul_const = lambda c: Function(F=lambda x: c * x, DF=lambda x: c * np.eye(1), D2F=lambda x: np.zeros(1), M=1, N=1)
