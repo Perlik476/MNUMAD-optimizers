@@ -10,7 +10,7 @@ from functions import Function
 def gradient_descent(
     R: Function,
     p0: NDArray[np.float64],
-    alpha: float,
+    alpha: float | NDArray[np.float64],
     max_iter: int,
     points: Optional[list[NDArray[np.float64]]] = None,
     errs: Optional[list[float]] = None,
@@ -21,13 +21,17 @@ def gradient_descent(
     :param p0: initial point
     :param alpha: step size
     :param max_iter: maximum number of iterations
+    :param armijo_update: whether to use Armijo rule for updating alpha
     :param points: list to store iteration points in
     :param errs: list to store errors in
     :return: minimum point
     """
+    if isinstance(alpha, float):
+        alpha = np.full(max_iter, alpha)
+    assert isinstance(alpha, np.ndarray), "alpha must be either float or np.ndarray"
 
     assert max_iter > 0, "max_iter must be positive"
-    assert alpha > 0, "alpha must be positive"
+    assert (alpha > 0).all(), "alpha must be positive"
 
     DR = R.differential()
     p = p0
@@ -37,7 +41,8 @@ def gradient_descent(
         errs.append(np.linalg.norm(R(p)))
 
     for i in tqdm(range(1, max_iter + 1), desc=f"Gradient descent"):
-        p = p - alpha * DR(p).T @ R(p)
+        d = DR(p).T @ R(p)
+        p = p - alpha[i - 1] * d
         if points is not None:
             points.append(p)
         if errs is not None:
