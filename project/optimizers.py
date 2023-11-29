@@ -82,7 +82,7 @@ def newton(
 
     for i in tqdm(range(1, max_iter + 1), desc=f"Newton"):
         try:
-            d = np.linalg.solve(DR(p).T @ DR(p) + D2R(p).T @ R(p), DR(p).T @ R(p))
+            d = np.linalg.solve(DR(p).T @ DR(p) + (D2R(p).T @ R(p)).T, DR(p).T @ R(p))
         except np.linalg.LinAlgError:
             err = np.linalg.norm(R(p))
             print(f"Newton failed in iteration nr {i}. Returning current point.")
@@ -362,7 +362,7 @@ class LevenbergMarquardt:
         self,
         p0: NDArray[np.float64],
         max_iter: int,
-        step_type: str = "cgnr",
+        step_type: str = "least_squares",
         step_max_iter: int = 10,
         step_tol: float = 1e-6,
         points: Optional[list[NDArray[np.float64]]] = None,

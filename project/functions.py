@@ -175,7 +175,7 @@ def multiply(f: Function, g: Function) -> Function:
         return f(x) * g.differential()(x) + g(x) * f.differential()(x)
     
     def D2F(x: NDArray[np.float64]) -> NDArray[np.float64]:
-        return f(x) * g.differential(2)(x) + 2 * g.differential()(x) * f.differential()(x) + g(x) * f.differential(2)(x)
+        return f(x) * g.differential(2)(x) + 2 * g.differential()(x) @ f.differential()(x) + g(x) * f.differential(2)(x)
     
     return Function(F, DF, D2F, f.N, f.M)
 
@@ -249,6 +249,7 @@ sqrt = Function(F=lambda x: np.sqrt(np.abs(x)), DF=lambda x: 1 / (2 * np.sqrt(np
 norm_sqr = lambda N: Function(F=lambda x: np.array(np.linalg.norm(x)**2), DF=lambda x: 2 * x, D2F=lambda x: 2 * np.eye(len(x)), N=N, M=1)
 sum_ = lambda N: Function(F=np.sum, DF=lambda x: np.ones_like(x), D2F=lambda _: np.zeros((N, N)), N=N, M=1)
 proj = lambda N: lambda k: Function(F=lambda x: x[k], DF=lambda x: np.eye(N)[k], D2F=lambda x: np.zeros((len(x), len(x))), N=N, M=1)
-constM = lambda N: lambda c: Function(F=lambda _: np.array(c), DF=lambda _: np.zeros(N), D2F=lambda _: np.zeros((N, N)), N=N, M=1)
+constN = lambda N: lambda c: Function(F=lambda _: np.array(c), DF=lambda _: np.zeros(N), D2F=lambda _: np.zeros((N, N)), N=N, M=1)
 const1 = lambda c: Function(F=lambda _: np.array(c), DF=lambda _: np.zeros(1), D2F=lambda _: np.zeros((1, 1)), N=1, M=1)
 mul_const = lambda c: Function(F=lambda x: c * x, DF=lambda x: c * np.eye(1), D2F=lambda x: np.zeros(1), N=1, M=1)
+mul_const_N = lambda N: lambda c: Function(F=lambda x: c * x, DF=lambda x: c * np.eye(N), D2F=lambda x: np.zeros((N, N)), N=N, M=1)
