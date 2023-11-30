@@ -4,7 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 from tqdm import tqdm
 
-from functions import Function
+from src.functions import Function
 
 
 def gradient_descent(
