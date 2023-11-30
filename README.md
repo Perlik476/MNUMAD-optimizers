@@ -18,3 +18,10 @@ The `tests` folder contains the following files:
 * `data_approximation.ipynb` - a notebook with a simple function to approximate based on data
 * `complicated_function.ipynb` - a notebook with a more complicated function to test the optimizers, the `functions.py` library is heavily used here
 * `neural_network.ipynb` - a notebook with a neural network to test the optimizers
+
+## Requirements
+
+The project was written in Python 3.10. The following libraries are required to run the code:
+* `numpy`
+* `tqdm`
+* `matplotlib`
